@@ -1,0 +1,90 @@
+// Code your design here
+// Code your design here
+module edge_detector (
+    input logic clk,
+    input logic reset,
+    input logic level,
+  	
+    output logic tick
+  	
+    );
+  // s y m b o l i c   s t a t e      d e c l a r a t i o n
+  
+
+  typedef enum logic [1:0] {
+        zero,
+        edg,
+        one
+        
+    } state_t;
+  
+  //s i g n a l        d e c l a r a t i on 
+
+    state_t state_reg, state_next;
+ 	
+  
+  //  s t a t e    register
+  
+  always_ff @(posedge clk or posedge reset)
+    begin
+        if (reset)
+            state_reg <= zero;
+        else
+            state_reg <= state_next;
+    end
+  
+  // n e x t - s t a t e    logic
+  always_comb
+    begin
+      
+      case (state_reg)
+// 	zero logic
+	zero : 	begin
+	          			
+      if (level) begin
+			state_next = edg;
+end else begin
+	state_next = zero;
+end
+      
+	        			end
+        
+//      edge ogic
+        
+       edg : 	begin
+	          			
+      if (level) begin
+			state_next = one;
+end else begin
+	state_next = zero;
+end
+      
+	        			end
+        
+        //      edge ogic
+        
+       one : 	begin
+	          			
+      if (level) begin
+			state_next = one;
+end else begin
+	state_next = zero;
+end
+      
+	        			end
+        
+    
+	default 	 : state_next = zero;
+endcase
+      
+      
+        end
+  
+  
+  assign tick = (state_reg == edg);   
+  
+  
+  
+  
+  
+  endmodule
