@@ -1,0 +1,158 @@
+// Code your design here
+module fib (
+    input  logic clk,
+    input  logic reset,
+  input  logic start,
+  input  logic [4:0] i ,
+    output logic ready,
+    output logic done_tick,
+  output logic [19:0]f
+);
+  
+      //========================================================
+    // State declaration
+    //========================================================
+
+    typedef enum logic [1:0] {
+        idle,
+        op,
+        done
+        
+    } state_t;
+
+    state_t state_reg, state_next;
+  
+  //========================================================
+    // for datapath
+    //========================================================
+   localparam int N = 20;
+  
+  logic [N-1:0] t0_reg;
+  logic [N-1:0] t1_reg;
+  logic [N-1:0] t0_next;
+  logic [N-1:0] t1_next;
+  logic [4:0] n_reg;
+  logic [4:0] n_next;
+  
+  
+  //========================================================
+    // State and datapath registers
+    //========================================================
+
+    always_ff @(posedge clk or posedge reset) begin
+        if (reset) begin
+            state_reg <= idle;
+            t0_reg     <= 0;
+          	t1_reg <= 1;
+          	n_reg <= i;
+        end
+        else begin
+            state_reg <= state_next;
+ 			t0_reg     <= t0_next;
+          	t1_reg <= t1_next;
+          	n_reg <= n_next;
+        end
+    end
+  
+  
+  
+  //========================================================
+    // FSM control logic
+    //========================================================
+
+    always_comb begin
+      
+      // Defaults
+        state_next = state_reg;
+      	
+        
+        ready   = 1'b0;
+        done_tick    = 1'b0;
+
+        case (state_reg)
+          
+           idle: begin
+                ready = 1'b1;
+
+             if (start) begin
+                    state_next = op;
+                    
+                end
+              else begin
+            state_next = idle;
+        end
+             
+            end
+//           ------------------
+          
+          op: begin
+            
+            ready = 1'b0;
+            
+            if (n_reg == 0)
+				state_next = done;
+            else if (n_reg == 1) begin
+	state_next = done;
+end else
+	state_next = op;
+            
+          end
+//           ----------------------------
+          
+          
+          done: begin
+            
+            done_tick = 1'b1;
+            state_next = idle;
+
+            
+          end
+//           ----------------------------
+          
+          
+          
+          default: begin
+                state_next = idle;
+            end
+
+        endcase
+          
+          end
+      
+      
+      
+     //========================================================
+    // Datapath next-state logic
+    //========================================================
+
+    always_comb begin
+	t0_next = t0_reg;
+    t1_next = t1_reg;
+    n_next = n_reg;
+
+      
+      // Start a new Fibonacci calculation
+        if (state_reg == idle && start) begin
+
+            t0_next = '0;
+            t1_next = 20'd1;
+            n_next  = i;
+
+        end
+
+        // Perform Fibonacci iteration
+        else if (state_reg == op && n_reg > 1) begin
+
+            t0_next = t1_reg;
+            t1_next = t1_reg + t0_reg;
+            n_next  = n_reg - 1;
+
+        end
+      
+     
+      
+		
+    end
+  
+  assign f = t1_reg;
+endmodule
