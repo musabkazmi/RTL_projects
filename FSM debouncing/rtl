@@ -1,0 +1,285 @@
+module tick_generator #(
+    parameter int unsigned MAX_COUNT = 500_000 - 1
+)(
+    input  logic clk,
+    input  logic reset,
+    output logic m_tick
+);
+
+    int unsigned count;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            count  <= 0;
+            m_tick <= 1'b0;
+        end
+        else if (count == MAX_COUNT) begin
+            count  <= 0;
+            m_tick <= 1'b1;
+        end
+        else begin
+            count  <= count + 1;
+            m_tick <= 1'b0;
+        end
+    end
+
+endmodule
+
+// Code your design here
+module debounce #(
+    parameter int MAX_COUNT = 500_000 - 1
+)(
+    input logic clk,
+    input logic reset,
+    input logic sw,
+//   	input logic m_tick,
+    output logic db
+  	
+    );
+    logic m_tick;
+  
+tick_generator #(
+    .MAX_COUNT(MAX_COUNT)
+) tick_generator_inst (
+    .clk(clk),
+    .reset(reset),
+    .m_tick(m_tick)
+);
+  
+  typedef enum logic [2:0] {
+        zero,
+        wait1_1,
+    	wait1_2,
+    	wait1_3,
+    		
+        one,
+    	wait0_1,
+    	wait0_2,
+    	wait0_3
+        
+    } state_t;
+ 
+  state_t state_reg, state_next;
+  
+  
+  // number of counter bits
+// localparam int N = 19;
+// //     localparam int MAX_COUNT = 500_000 - 1;
+
+//     logic [N-1:0] q_reg;
+//     logic m_tick;
+
+//     always_ff @(posedge clk or posedge reset) begin
+//         if (reset)
+//             q_reg <= '0;
+//         else if (q_reg == MAX_COUNT)
+//             q_reg <= '0;
+//         else
+//             q_reg <= q_reg + 1'b1;
+//     end
+
+//     assign m_tick = (q_reg == MAX_COUNT);
+  
+  
+   
+  //  s t a t e    register
+  
+  always_ff @(posedge clk or posedge reset)
+    begin
+        if (reset)
+            state_reg <= zero;
+        else
+            state_reg <= state_next;
+    end
+  
+  always_comb
+    begin
+      
+      case (state_reg)
+//         zero begin
+        	zero: 	begin
+	          			
+              if (sw) begin
+						state_next = wait1_1;
+						end else begin
+						state_next = zero;
+				end
+	        			end
+//         ------------------
+       
+//         wait-1 begin-----------------
+      wait1_1  : 	begin
+        
+        if (sw) begin
+    		if (m_tick) begin
+        // Code block for condition1 and condition2 true
+              state_next = wait1_2;
+    		end else begin
+        // Code block for condition1 true and condition2 false
+              state_next = wait1_1;
+    		end
+		end else begin
+    // Code block for condition1 false
+          state_next = zero;
+		end
+        
+      end
+//         ------------------------
+//         wait1_2 begin
+        wait1_2  : 	begin
+        
+        //         -----------------
+        if (sw) begin
+    		if (m_tick) begin
+        // Code block for condition1 and condition2 true
+              state_next = wait1_3;
+    		end else begin
+        // Code block for condition1 true and condition2 false
+              state_next = wait1_2;
+    		end
+		end else begin
+    // Code block for condition1 false
+          state_next = zero;
+		end
+          
+        end
+//         ------------------------
+        
+// //         wait0_2 begin
+//         wait0_2  : 	begin
+          
+//            if (sw) begin
+//     		if (m_tick) begin
+//         // Code block for condition1 and condition2 true
+//               state_next = wait1_3;
+//     		end else begin
+//         // Code block for condition1 true and condition2 false
+//               state_next = wait1_2;
+//     		end
+// 		end else begin
+//     // Code block for condition1 false
+//           state_next = zero;
+// 		end
+          
+          
+//         end
+// // ---------------------         
+
+        
+//         ------------------------
+        
+//         wait1_3 begin
+        wait1_3  : 	begin
+          
+           if (sw) begin
+    		if (m_tick) begin
+        // Code block for condition1 and condition2 true
+              state_next = one;
+    		end else begin
+        // Code block for condition1 true and condition2 false
+              state_next = wait1_3;
+    		end
+		end else begin
+    // Code block for condition1 false
+          state_next = zero;
+		end
+          
+          
+        end
+// ---------------------     
+        
+// ____________ now one to zero__________
+        
+        
+        //         one begin
+        one : 	begin
+          
+          if (sw == 0) begin
+						state_next = wait0_1;
+						end else begin
+						state_next = one;
+				end
+	        			
+
+          
+          
+        end
+// ---------------------     
+        
+        //         wait0_1 begin
+        wait0_1  : 	begin
+          
+          if (sw==0) begin
+    		if (m_tick) begin
+        // Code block for condition1 and condition2 true
+              state_next = wait0_2;
+    		end else begin
+        // Code block for condition1 true and condition2 false
+              state_next = wait0_1;
+    		end
+		end else begin
+    // Code block for condition1 false
+          state_next = one;
+		end
+          
+          
+        end
+// ---------------------
+        
+        
+         //         wait0_2 begin
+        wait0_2  : 	begin
+          
+          if (sw==0) begin
+    		if (m_tick) begin
+        // Code block for condition1 and condition2 true
+              state_next = wait0_3;
+    		end else begin
+        // Code block for condition1 true and condition2 false
+              state_next = wait0_2;
+    		end
+		end else begin
+    // Code block for condition1 false
+          state_next = one;
+		end
+          
+          
+        end
+// ---------------------
+        
+        // ---------------------
+        
+        
+         //         wait0_2 begin
+        wait0_3  : 	begin
+          
+          if (sw==0) begin
+    		if (m_tick) begin
+        // Code block for condition1 and condition2 true
+              state_next = zero;
+    		end else begin
+        // Code block for condition1 true and condition2 false
+              state_next = wait0_3;
+    		end
+		end else begin
+    // Code block for condition1 false
+          state_next = one;
+		end
+          
+          
+        end
+// ---------------------
+        
+        
+        
+		default 	 : state_next = zero;
+        
+          endcase
+      
+     
+      
+    end
+  assign db = (state_reg==one)||(state_reg==wait0_1)||(state_reg == wait0_2)||(state_reg == wait0_3);
+endmodule
+    
+    
