@@ -1,0 +1,74 @@
+// Code your testbench here
+// or browse Examples
+
+module piso_tb;
+  
+  logic a;
+  logic b;
+  logic c;
+  logic d;
+  logic enable;
+  
+  logic out;
+  
+  
+  reg clk = 0;
+ 
+  piso p1
+  (
+  .a(a),
+  .b(b),
+  .c(c),
+  .d(d),
+  .enable(enable),
+  .clk(clk),
+  .out(out)
+  
+);
+  
+  always begin
+    
+  #5 clk = ~clk;
+   
+end
+  
+ initial begin
+//     a=0;
+//     b=0;
+//    c= 0;
+//    d=0;
+//    enable = 0;
+   
+   
+    a=1;
+    b=0;
+   c= 1;
+   d=0;
+   enable = 1;
+   #10 
+   
+   enable = 0;
+   
+//    #10
+//    a=0;
+//     b=0;
+//    c= 0;
+//    d=0;
+//    enable = 0;
+  end
+  
+  initial  begin
+    $dumpfile ("counter.vcd"); 
+ $dumpvars(1);
+  end
+  
+  initial  begin
+    
+    $display ("time clk a\t b\t c\t d\t enable\t out");	
+    $monitor ("%g\t %b   %b     %b   %b   %b     %b     %b  ", 
+	  $time, clk, a, b,c,d,enable,out);
+    
+    end
+  initial 
+  #200 $finish; 
+    endmodule
