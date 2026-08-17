@@ -1,0 +1,193 @@
+`timescale 1ns/1ps
+
+module fib_tb;
+
+    //========================================================
+    // Signals
+    //========================================================
+
+    logic        clk;
+    logic        reset;
+    logic        start;
+    logic [4:0]  i;
+
+    logic        ready;
+    logic        done_tick;
+    logic [19:0] f;
+
+    integer errors;
+
+
+    //========================================================
+    // DUT
+    //========================================================
+
+    fib dut (
+        .clk       (clk),
+        .reset     (reset),
+        .start     (start),
+        .i         (i),
+        .ready     (ready),
+        .done_tick (done_tick),
+        .f          (f)
+    );
+
+
+    //========================================================
+    // Clock
+    //========================================================
+
+    initial begin
+        clk = 1'b0;
+
+        forever #5 clk = ~clk;
+    end
+
+
+    //========================================================
+    // Main test
+    //========================================================
+
+    initial begin
+
+        errors = 0;
+
+        // Initial values
+        reset = 1'b1;
+        start = 1'b0;
+        i     = 5'd0;
+
+        // Hold reset for 2 clock cycles
+        repeat (2)
+            @(posedge clk);
+
+        reset = 1'b0;
+
+        // Give DUT one cycle after reset
+        @(posedge clk);
+
+
+        //====================================================
+        // Fibonacci tests
+        //====================================================
+
+        test_fib(0,  20'd0);
+        test_fib(1,  20'd1);
+        test_fib(2,  20'd1);
+        test_fib(3,  20'd2);
+        test_fib(4,  20'd3);
+        test_fib(5,  20'd5);
+        test_fib(6,  20'd8);
+        test_fib(7,  20'd13);
+        test_fib(8,  20'd21);
+        test_fib(9,  20'd34);
+        test_fib(10, 20'd55);
+
+
+        //====================================================
+        // Final result
+        //====================================================
+
+        $display("");
+        $display("========================================");
+
+        if (errors == 0) begin
+            $display("ALL TESTS PASSED");
+        end
+        else begin
+            $display("%0d TEST(S) FAILED", errors);
+        end
+
+        $display("========================================");
+
+        $finish;
+
+    end
+
+
+    //========================================================
+    // Fibonacci test task
+    //========================================================
+
+    task test_fib(
+        input [4:0]  n,
+        input [19:0] expected
+    );
+
+        begin
+
+            //================================================
+            // Wait until DUT is ready
+            //================================================
+
+            while (ready != 1'b1)
+                @(posedge clk);
+
+
+            //================================================
+            // Apply input
+            //================================================
+
+            i = n;
+
+            // Assert start
+            start = 1'b1;
+
+
+            //================================================
+            // Wait one clock
+            // DUT samples start on this edge
+            //================================================
+
+            @(posedge clk);
+
+            // Remove start
+            start = 1'b0;
+
+
+            //================================================
+            // Wait for done_tick
+            //================================================
+
+            while (done_tick != 1'b1)
+                @(posedge clk);
+
+
+            //================================================
+            // Check result
+            //================================================
+
+            if (f == expected) begin
+
+                $display(
+                    "PASS: Fibonacci(%0d) = %0d",
+                    n,
+                    f
+                );
+
+            end
+            else begin
+
+                $display(
+                    "FAIL: Fibonacci(%0d) = %0d, expected %0d",
+                    n,
+                    f,
+                    expected
+                );
+
+                errors = errors + 1;
+
+            end
+
+
+            //================================================
+            // Wait until FSM returns to IDLE
+            //================================================
+
+            @(posedge clk);
+
+        end
+
+    endtask
+
+endmodule
