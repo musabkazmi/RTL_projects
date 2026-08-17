@@ -1,0 +1,103 @@
+// Code your testbench here
+// or browse Examples
+`timescale 1ns/1ps
+
+module edge_detector_tb;
+
+    // Signals
+    logic clk;
+    logic reset;
+    logic level;
+    logic tick;
+
+    // Instantiate the DUT
+    edge_detector dut (
+        .clk   (clk),
+        .reset (reset),
+        .level (level),
+        .tick  (tick)
+    );
+
+    // Clock generation
+    // 10 ns period
+    always #5 clk = ~clk;
+
+    // Test sequence
+    initial begin
+
+        // Initial values
+        clk   = 0;
+        reset = 1;
+        level = 0;
+
+        // Reset
+        #12;
+        reset = 0;
+
+        // -------------------------
+        // TEST 1
+        // level = 0
+        // Expected: tick = 0
+        // -------------------------
+        #20;
+
+        // -------------------------
+        // TEST 2
+        // Rising edge: 0 -> 1
+        // Expected: tick = 1
+        // -------------------------
+        level = 1;
+
+        #10;
+
+        // -------------------------
+        // TEST 3
+        // level remains 1
+        // Expected: tick = 0
+        // -------------------------
+        #20;
+
+        // -------------------------
+        // TEST 4
+        // Falling edge: 1 -> 0
+        // Expected: tick = 0
+        // -------------------------
+        level = 0;
+
+        #20;
+
+        // -------------------------
+        // TEST 5
+        // Another rising edge
+        // Expected: tick = 1
+        // -------------------------
+        level = 1;
+
+        #10;
+
+        // -------------------------
+        // TEST 6
+        // level remains 1
+        // Expected: tick = 0
+        // -------------------------
+        #20;
+
+        // Finish
+        $finish;
+    end
+  initial  begin
+    $dumpfile ("counter.vcd"); 
+ $dumpvars(1);
+  end
+
+    // Display signals
+    initial begin
+        $monitor("Time=%0t | reset=%b | level=%b | state=%s | tick=%b",
+                 $time,
+                 reset,
+                 level,
+                 dut.state_reg.name(),
+                 tick);
+    end
+
+endmodule
