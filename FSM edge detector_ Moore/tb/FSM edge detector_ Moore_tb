@@ -1,0 +1,85 @@
+// Code your testbench here
+// or browse Examples
+`timescale 1ns/1ps
+
+module edge_detector_tb;
+
+    // Testbench signals
+    logic clk;
+    logic reset;
+    logic level;
+    logic tick;
+
+    // Instantiate DUT (Device Under Test)
+    edge_detector dut (
+        .clk   (clk),
+        .reset (reset),
+        .level (level),
+        .tick  (tick)
+    );
+
+    // Clock generation
+    // 10 ns clock period
+    always #5 clk = ~clk;
+
+    // Test sequence
+    initial begin
+
+        // Initialize
+        clk   = 0;
+        reset = 1;
+        level = 0;
+
+        // Keep reset active for 2 clock cycles
+        #10;
+        reset = 0;
+
+        // -------------------------
+        // Test 1: level stays 0
+        // -------------------------
+        #20;
+
+        // -------------------------
+        // Test 2: Rising edge 0 -> 1
+        // tick should become 1
+        // -------------------------
+        level = 1;
+
+        #30;
+
+        // -------------------------
+        // Test 3: level stays 1
+        // tick should return to 0
+        // -------------------------
+        #30;
+
+        // -------------------------
+        // Test 4: Falling edge 1 -> 0
+        // No tick expected
+        // -------------------------
+        level = 0;
+
+        #30;
+
+        // -------------------------
+        // Test 5: Another rising edge
+        // tick should become 1 again
+        // -------------------------
+        level = 1;
+
+        #30;
+
+        // Finish simulation
+        $finish;
+    end
+ initial  begin
+    $dumpfile ("counter.vcd"); 
+ $dumpvars(1);
+  end
+    // Monitor signals
+    initial begin
+        $monitor("Time=%0t | reset=%b | level=%b | state=%s | tick=%b",
+                 $time, reset, level, dut.state_reg.name(), tick);
+    end
+
+endmodule
