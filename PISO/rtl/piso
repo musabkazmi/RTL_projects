@@ -1,0 +1,59 @@
+
+
+module piso
+  (
+    input logic a,
+    input logic b,
+    input logic c,
+    input logic d,
+    input logic enable,
+    input logic clk,
+    output logic out
+  
+  );
+  logic [3:0] r_reg;
+  byte count=0;
+  always @ (posedge clk)
+           
+        
+//         __________
+        
+    if (enable==1)
+		begin : save_calues
+      	r_reg[0] = a ;
+      	r_reg[1] = b ;
+     	 r_reg[2] = c ;
+      	r_reg[3] = d ;
+      
+          count = 0;
+        end
+  
+
+  else if ( count == 0 && enable== 0) begin
+	 count = 1;
+    out = r_reg[3];
+    end
+    else if ( count == 1 && enable== 0) begin
+	 count = 2;
+      out = r_reg[2];
+      end
+      else if ( count == 2 && enable== 0) begin
+	 count = 3;
+        out = r_reg[1];
+        end
+        else if ( count == 3 && enable== 0) begin
+	 count = 4;
+          out = r_reg[0];
+  end
+//     else if ( count == 4 && enable== 0) begin
+// 	 count = 0;
+  
+//   end else
+	
+//         count = 0;
+ 	
+// end
+//       end
+    
+  
+endmodule
