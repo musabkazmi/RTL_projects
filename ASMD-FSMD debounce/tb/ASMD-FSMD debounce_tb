@@ -1,0 +1,182 @@
+// Code your testbench here
+// or browse Examples
+`timescale 1ns/1ps
+
+module debounce_tb;
+
+    //========================================================
+    // Testbench signals
+    //========================================================
+
+    logic clk;
+    logic reset;
+    logic sw;
+
+    logic db_level;
+    logic db_tick;
+
+    //========================================================
+    // DUT
+    //========================================================
+
+    debounce #(
+        .N(4)
+    ) dut (
+        .clk      (clk),
+        .reset    (reset),
+        .sw       (sw),
+        .db_level (db_level),
+        .db_tick  (db_tick)
+    );
+
+    //========================================================
+    // Clock: 10 ns period
+    //========================================================
+
+    initial begin
+        clk = 0;
+
+        forever #5 clk = ~clk;
+    end
+
+    //========================================================
+    // Test sequence
+    //========================================================
+
+    initial begin
+
+        $display("========================================");
+        $display("Starting debounce test");
+        $display("========================================");
+
+        // Initial values
+        reset = 1;
+        sw    = 0;
+
+        // Hold reset for a few clocks
+        repeat (2) @(posedge clk);
+
+        reset = 0;
+
+        //====================================================
+        // TEST 1: Initial LOW
+        //====================================================
+
+        @(posedge clk);
+
+        $display("[%0t] TEST 1: sw=0, db_level=%b",
+                 $time, db_level);
+
+        if (db_level !== 1'b0)
+            $error("TEST 1 FAILED: db_level should be 0");
+
+
+        //====================================================
+        // TEST 2: Clean HIGH transition
+        //====================================================
+
+        $display("[%0t] TEST 2: sw -> 1", $time);
+
+        sw = 1;
+
+        // Wait enough clock cycles for debounce
+        repeat (20) @(posedge clk);
+
+        $display("[%0t] sw=%b, db_level=%b, db_tick=%b",
+                 $time, sw, db_level, db_tick);
+
+        if (db_level !== 1'b1)
+            $error("TEST 2 FAILED: db_level should become 1");
+
+
+        //====================================================
+        // TEST 3: Short LOW glitch
+        //====================================================
+
+        $display("[%0t] TEST 3: short LOW glitch", $time);
+
+        sw = 0;
+
+        repeat (2) @(posedge clk);
+
+        sw = 1;
+
+        repeat (5) @(posedge clk);
+
+        $display("[%0t] sw=%b, db_level=%b",
+                 $time, sw, db_level);
+
+        if (db_level !== 1'b1)
+            $error("TEST 3 FAILED: LOW glitch should be ignored");
+
+
+        //====================================================
+        // TEST 4: Clean LOW transition
+        //====================================================
+
+        $display("[%0t] TEST 4: sw -> 0", $time);
+
+        sw = 0;
+
+        repeat (20) @(posedge clk);
+
+        $display("[%0t] sw=%b, db_level=%b",
+                 $time, sw, db_level);
+
+        if (db_level !== 1'b0)
+            $error("TEST 4 FAILED: db_level should become 0");
+
+
+        //====================================================
+        // TEST 5: Short HIGH glitch
+        //====================================================
+
+        $display("[%0t] TEST 5: short HIGH glitch", $time);
+
+        sw = 1;
+
+        repeat (2) @(posedge clk);
+
+        sw = 0;
+
+        repeat (5) @(posedge clk);
+
+        $display("[%0t] sw=%b, db_level=%b",
+                 $time, sw, db_level);
+
+        if (db_level !== 1'b0)
+            $error("TEST 5 FAILED: HIGH glitch should be ignored");
+
+
+        //====================================================
+        // TEST 6: Another clean HIGH transition
+        //====================================================
+
+        $display("[%0t] TEST 6: sw -> 1", $time);
+
+        sw = 1;
+
+        repeat (20) @(posedge clk);
+
+        $display("[%0t] sw=%b, db_level=%b",
+                 $time, sw, db_level);
+
+        if (db_level !== 1'b1)
+            $error("TEST 6 FAILED: db_level should become 1");
+
+
+        //====================================================
+        // Finish
+        //====================================================
+
+        $display("========================================");
+        $display("All tests completed");
+        $display("========================================");
+
+        $finish;
+    end
+initial begin
+        $dumpfile("edge_detector.vcd");
+        $dumpvars(0, edge_detector_tb);
+    end
+endmodule
