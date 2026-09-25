@@ -1,0 +1,777 @@
+// Code your design here
+// Code your design here
+module uart  #(   
+
+  parameter M = 163,
+  parameter     N = ($clog2(M)),
+  parameter DBIT = 8,
+    parameter SB_TICK    = 16,
+    parameter DATA_WIDTH = 8,
+    parameter DEPTH      = 16
+              
+              )
+  (
+    input  logic                  clk,
+    input  logic                  reset,
+  	input  logic  rx,
+
+    input  logic                  rd_uart,
+    input  logic                  wr_uart,
+    input  logic [DATA_WIDTH-1:0] wr_data,
+  
+	output   logic tx,  
+    output logic [DATA_WIDTH-1:0] rd_data,
+    output logic                  rx_empty,
+    output logic                  full
+);
+  
+  logic s_tick;
+  logic [DATA_WIDTH-1:0] dout_to_wdata;
+  logic rx_fifo_done_tick;
+  logic [7:0] q_wire;
+  
+  
+  logic [DATA_WIDTH-1:0] tx_fifo_data;
+  logic tx_fifo_done_tick;
+  logic tx_empty_fifo;
+  
+  logic [DATA_WIDTH-1:0] rd_data__to__din;
+  logic tx_done_tick____to___rd;
+  logic empty_to_tx_start;
+  
+  
+  baut_generator #(
+    .M(M),
+    .N(N)
+  ) baut_generator_inst (
+    .clk(clk),
+    .reset(reset),
+    .max_tick(s_tick),
+    .q(q_wire)      	
+    
+);
+  
+  uart_rx #(
+    .DBIT(DBIT),
+    .SB_TICK(SB_TICK)
+  )
+  uart_rx_inst(
+    .clk(clk),
+    .reset(reset),
+    .s_tick(s_tick),
+    .rx(rx),
+    
+    .rx_done_tick(rx_fifo_done_tick),
+    .dout(dout_to_wdata)
+  );
+  
+  fifo #(
+    .DATA_WIDTH(DATA_WIDTH),
+    .DEPTH(DEPTH))
+  fifo_rx_inst
+  (
+    .clk(clk),
+    .reset(reset),  
+    .wr_en(rx_fifo_done_tick),
+    .wr_data(dout_to_wdata),
+    .rd_en(rd_uart),
+    .rd_data(rd_data),
+    .empty(rx_empty),
+    .full()
+  );
+  
+  uart_tx #
+  (
+    .DBIT(DBIT),
+    .SB_TICK(SB_TICK)
+  )
+  uart_tx_inst
+  (
+      .clk(clk),
+    .reset(reset), 
+    .tx_start(~empty_to_tx_start),
+    .s_tick(s_tick),
+    .d_in(rd_data__to__din),
+    .tx_done_tick(tx_done_tick____to___rd),
+    .tx(tx)
+
+  );
+  
+    fifo #(
+    .DATA_WIDTH(DATA_WIDTH),
+    .DEPTH(DEPTH),
+    .FWFT(1))
+  fifo_tx_inst
+  (
+    .clk(clk),
+    .reset(reset),  
+    .wr_en(wr_uart),
+    .wr_data(wr_data),
+    .rd_en(tx_done_tick____to___rd),
+    .rd_data(rd_data__to__din),
+    .empty(empty_to_tx_start),
+    .full(full)
+  );
+  
+  
+  endmodule
+
+
+// ____________________baut_rate gen_______________________________
+module baut_generator
+  #(parameter M = 163,
+    parameter     N = ($clog2(M))) 
+  (
+    input  logic clk,
+    input  logic reset,  
+
+  	output logic max_tick,
+    output logic [N-1:0] q
+  );
+
+  logic  [N - 1:0]  r_reg;
+  logic  [N - 1:0]  r_next;
+  
+    always_ff @(posedge clk or posedge reset) begin
+
+        if (reset) begin
+
+            r_reg <= 0;
+
+        end
+
+        else begin
+
+           r_reg <= r_next;
+
+        end
+
+    end
+  
+   always_comb begin
+     
+     if (r_reg< M-1)
+     	begin
+          r_next= r_reg + 1;
+        end
+     else begin
+       	  r_next= 0;
+     end
+     
+     if (r_reg == M-1)
+     	begin
+         max_tick = 1;
+        end
+     else begin
+       	  max_tick = 0;
+     end
+   end
+  
+  assign q= r_reg;
+endmodule
+
+// ____________________baut_rate gen_
+
+
+// ____________________reciever_starts___________
+module uart_rx
+  #(parameter DBIT = 8,
+    parameter SB_TICK    = 16) 
+  (
+  	input  logic clk,
+    input  logic reset,
+    input  logic s_tick,
+    input  logic rx,
+    
+    output logic rx_done_tick,
+output logic [DBIT-1:0] dout
+  
+  
+  );
+  
+        //========================================================
+    // State declaration
+    //========================================================
+
+  typedef enum logic [1:0] {
+    	idle,
+    	start,
+    	data,
+    	stop
+        
+    } state_t;
+
+    state_t state_reg, state_next;
+  
+  logic [SB_TICK - 1:0] s_reg;
+logic [$clog2(DBIT):0] n_reg;
+  logic  [DBIT - 1:0] b_reg;
+  
+  logic [SB_TICK - 1:0]s_next;
+  logic [$clog2(DBIT):0] n_next;
+  logic  [DBIT - 1:0] b_next;
+  
+  
+    //==========================================================
+    // 1. SEQUENTIAL LOGIC for sates/ FSM
+    //==========================================================
+
+    always_ff @(posedge clk or posedge reset) begin
+
+        if (reset) begin
+
+            state_reg <= idle;
+
+        end
+
+        else begin
+
+            state_reg <= state_next;
+
+        end
+
+    end  
+  
+     //==========================================================
+    // 1. SEQUENTIAL LOGIC for DATAPATH 
+    //==========================================================
+
+    always_ff @(posedge clk or posedge reset) begin
+      
+      if (reset) begin
+
+          s_reg <= 0;
+          n_reg <= 0;
+          b_reg <= 0;
+          
+          
+        end
+      else begin
+		  s_reg <= s_next;
+          n_reg <= n_next;
+          b_reg <= b_next;
+        
+      end
+      
+    end
+  
+    //========================================================
+    // FSM control logic/ next state logic
+    //========================================================
+
+    always_comb begin
+      
+      state_next = state_reg;
+      
+       case (state_reg)
+// -----------------------------         
+         idle: begin
+           
+           if (rx) begin
+	       state_next = idle;
+			 end
+              else begin
+            state_next = start;
+        end         
+     
+         end
+// ----------------------- 
+         
+         start: begin
+           
+           if (s_tick && s_reg == (SB_TICK/2 - 1)) begin
+	       state_next = data;
+			 end
+              else begin
+            state_next = start;
+        end         
+     
+         end
+// -----------------------  
+         data: begin
+           
+           if (s_tick && s_reg == (SB_TICK - 1) && n_reg == DBIT-1) begin
+	       state_next = stop;
+			 end
+              else begin
+            state_next = data;
+        end         
+     
+         end
+// -----------------------     
+         
+         stop: begin
+           
+           if (s_tick && s_reg == (SB_TICK - 1)) begin
+	       state_next = idle;
+			 end
+              else begin
+            state_next = stop;
+        end         
+     
+         end
+// -----------------------   
+       endcase
+      
+    end
+  
+  
+      //========================================================
+    // next state datapath logic
+    //========================================================
+
+    always_comb begin
+      rx_done_tick = 0;
+      n_next = n_reg;
+      s_next = s_reg;
+      b_next = b_reg;
+      case (state_reg)
+        
+        idle : begin
+          
+         s_next = 0;
+          n_next = 0;
+          
+        end
+        start : begin
+          
+          if (s_tick)
+            begin
+              
+              if (s_reg < (SB_TICK/2 - 1))
+            begin
+              s_next = s_reg + 1;
+
+              
+            end              
+			else begin
+              s_next = 0;
+              n_next =0;              
+              
+			end
+//               s_next = s_reg + 1;
+            end
+         
+        end
+//         --------
+        data: begin
+          
+          if (s_tick)
+            begin
+              
+              if (s_reg < (SB_TICK - 1))
+                begin
+                  s_next = s_reg + 1;
+                end
+              else begin
+                b_next = {rx, b_reg[DBIT-1:1]};
+                s_next = 0;
+                if (n_reg < DBIT-1)
+                  n_next = n_reg + 1;
+              end
+             
+                
+
+            end
+          
+          
+        end
+//         -----------------------------
+        
+        stop: begin
+        
+          if (s_tick)
+            begin
+              if (s_reg < (SB_TICK - 1))
+                s_next = s_reg + 1;
+              else begin
+                s_next = 0;
+                rx_done_tick = 1;
+              end
+            end
+ 
+        end
+        
+        
+        
+        
+       endcase
+      
+      
+    end
+  
+  assign dout = b_reg;
+  
+  endmodule
+
+// ____________________reciver_ends
+
+
+// ________FIFO start
+
+module fifo #(
+    parameter DATA_WIDTH = 8,
+    parameter DEPTH      = 16,
+    parameter FWFT       = 0
+)(
+    input  logic                  clk,
+    input  logic                  reset,
+
+    input  logic                  wr_en,
+    input  logic                  rd_en,
+    input  logic [DATA_WIDTH-1:0] wr_data,
+
+    output logic [DATA_WIDTH-1:0] rd_data,
+    output logic                  empty,
+    output logic                  full
+);
+
+    // ------------------------------------------------------------
+    // Calculate required widths
+    // ------------------------------------------------------------
+
+    localparam PTR_WIDTH   = (DEPTH <= 1) ? 1 : $clog2(DEPTH);
+    localparam COUNT_WIDTH = $clog2(DEPTH + 1);
+
+
+    // ------------------------------------------------------------
+    // FIFO memory
+    // ------------------------------------------------------------
+
+    logic [DATA_WIDTH-1:0] mem [0:DEPTH-1];
+
+
+    // ------------------------------------------------------------
+    // Read pointer, write pointer and number of stored elements
+    // ------------------------------------------------------------
+
+    logic [PTR_WIDTH-1:0]   wr_ptr;
+    logic [PTR_WIDTH-1:0]   rd_ptr;
+    logic [COUNT_WIDTH-1:0] count;
+
+
+    // ------------------------------------------------------------
+    // Generate EMPTY and FULL flags
+    // ------------------------------------------------------------
+
+    logic [DATA_WIDTH-1:0] rd_data_r;
+    assign rd_data = FWFT ? mem[rd_ptr] : rd_data_r;
+
+    assign empty = (count == 0);
+    assign full  = (count == DEPTH);
+
+
+    // ------------------------------------------------------------
+    // Sequential FIFO logic
+    // ------------------------------------------------------------
+
+    always_ff @(posedge clk or posedge reset) begin
+
+        if (reset) begin
+
+            wr_ptr  <= '0;
+            rd_ptr  <= '0;
+            count   <= '0;
+            rd_data_r <= '0;
+
+        end
+
+        else begin
+
+            // ----------------------------------------------------
+            // WRITE
+            // ----------------------------------------------------
+
+            if (wr_en && !full) begin
+
+                mem[wr_ptr] <= wr_data;
+
+                if (wr_ptr == DEPTH-1)
+                    wr_ptr <= '0;
+                else
+                    wr_ptr <= wr_ptr + 1'b1;
+
+            end
+
+
+            // ----------------------------------------------------
+            // READ
+            // ----------------------------------------------------
+
+            if (rd_en && !empty) begin
+
+                rd_data_r <= mem[rd_ptr];
+
+                if (rd_ptr == DEPTH-1)
+                    rd_ptr <= '0;
+                else
+                    rd_ptr <= rd_ptr + 1'b1;
+
+            end
+
+
+            // ----------------------------------------------------
+            // COUNT
+            // ----------------------------------------------------
+
+            case ({wr_en && !full, rd_en && !empty})
+
+                2'b10: begin
+                    // Write only
+                    count <= count + 1'b1;
+                end
+
+                2'b01: begin
+                    // Read only
+                    count <= count - 1'b1;
+                end
+
+                2'b11: begin
+                    // Read and write at the same time
+                    count <= count;
+                end
+
+                2'b00: begin
+                    // Nothing happens
+                    count <= count;
+                end
+
+            endcase
+
+        end
+
+    end
+
+endmodule
+// ___________FIFO  ends
+
+
+// ___________transmitter start
+
+// Code your design here
+module uart_tx
+  #(parameter DBIT = 8,
+		parameter SB_TICK     = 16) 
+  (
+    input  logic clk,
+    input  logic reset, 
+    input  logic tx_start,
+    input  logic s_tick,
+    input  logic [DBIT-1:0] d_in,
+    
+    output logic tx_done_tick,
+    output logic tx
+  );
+  
+  
+      //========================================================
+    // State declaration
+    //========================================================
+
+  typedef enum logic [1:0] {
+    	idle,
+    	start,
+    	data,
+    	stop
+        
+    } state_t;
+  
+  state_t state_reg, state_next;
+  
+  logic [$clog2(SB_TICK):0] s_reg;
+  logic [$clog2(DBIT):0] n_reg;
+  logic tx_reg;
+  logic [DBIT-1:0] d_in_reg;
+  
+  logic [$clog2(SB_TICK):0] s_next;
+  logic [$clog2(DBIT):0] n_next;
+  logic [DBIT-1:0] d_in_next;
+  
+  
+      // 1. SEQUENTIAL LOGIC for sates/ FSM
+    //==========================================================
+
+    always_ff @(posedge clk or posedge reset) begin
+
+        if (reset) begin
+
+            state_reg <= idle;
+
+        end
+
+        else begin
+
+            state_reg <= state_next;
+
+        end
+
+    end
+  
+    always_ff @(posedge clk or posedge reset) begin
+      
+        if (reset) begin
+
+// 			d_in_reg <= d_in;
+//           	tx_done_tick <= 0;
+//           	tx_reg <= 0;
+          	tx <= 1;
+          	s_reg <= 0;
+          	n_reg <= 0;
+          	d_in_reg<=0;
+          	
+        end
+              else begin
+
+            
+          	tx <= tx_reg;
+            s_reg <= s_next;
+            n_reg <= n_next;
+                d_in_reg<=d_in_next;
+
+        end
+      
+    end
+  
+   //========================================================
+    // FSM control logic/ next state logic
+    //========================================================
+
+    always_comb begin
+      
+       state_next = state_reg;
+      d_in_next = d_in_reg;
+      case(state_reg)
+        idle:begin
+          if(tx_start)
+            begin
+              state_next = start;
+              d_in_next = d_in;
+            end
+          else begin
+            state_next = idle;
+          end
+          
+        end
+		
+        start:begin
+           if (s_tick) begin
+          if (s_reg< SB_TICK - 1)
+            begin
+              state_next = start;
+            end
+          else begin
+              state_next = data; 
+          end
+           end
+        end
+        
+        data:begin
+           if (s_tick) begin
+          if (s_reg == SB_TICK - 1 && n_reg == DBIT-1)
+            begin
+              state_next = stop;
+            end
+          else begin
+              state_next = data;
+                       	
+          end 
+           end
+        end
+        
+        stop:begin
+           if (s_tick) begin
+          if (s_reg< SB_TICK - 1)
+            begin
+              state_next = stop;
+            end
+          else begin
+              state_next = idle;
+          end 
+             
+           end
+          
+        end
+        
+        
+      endcase
+    end
+
+    // next state datapath logic
+    //========================================================
+
+    always_comb begin
+      tx_done_tick = 0;
+      s_next = s_reg;
+      n_next = n_reg;
+//       d_in_next = d_in_reg;
+  	case(state_reg)
+      
+      idle : begin
+        tx_reg=1;
+//         s_next= 0;
+//         n_next=0;
+      end
+//       ------------
+      start:begin
+        tx_reg=0;
+        if (s_tick) begin
+          
+          if (s_reg<SB_TICK- 1)begin
+            s_next=s_reg+ 1;
+          end
+          else begin
+			 s_next= 0;
+            n_next = 0;
+          end
+          
+        end
+//         else begin
+//                       s_next= 0;
+//         end
+        
+      end
+//       -----------------------
+		data:begin
+          tx_reg=d_in_reg[n_reg];
+          if (s_tick) begin
+            if (s_reg < SB_TICK - 1 )
+              begin
+                s_next=s_reg+ 1;
+              end
+            else begin
+              s_next = 0;
+              if (n_reg < DBIT-1)
+                n_next = n_reg + 1;
+            end
+          end
+          
+        end
+      
+// ------------------------------------ 
+      
+      stop:begin
+        tx_reg=1;
+        if (s_tick) begin
+          
+          if (s_reg<SB_TICK- 1)begin
+            s_next=s_reg+ 1;
+          end
+          else begin
+            s_next= 0;
+             tx_done_tick = 1;
+            
+          end
+          
+        end        
+        
+        
+      end
+      
+//       ------------------------------------
+      
+      
+    endcase
+        
+        end
+  endmodule
+//   ________tx ends
