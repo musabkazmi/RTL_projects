@@ -1,0 +1,385 @@
+
+`timescale 1ns/1ps
+
+module tb_uart;
+
+  // --------------------------------------------------------------------------
+  // Parameters
+  // --------------------------------------------------------------------------
+  localparam int M_TB       = 8;              // baud divisor (163 = real design)
+  localparam int OVS        = 16;             // SB_TICK, 16x oversampling
+  localparam int DBIT       = 8;
+  localparam int DEPTH      = 16;
+  localparam int CLK_PERIOD = 10;             // ns
+  localparam int BIT_CLKS   = OVS * M_TB;     // clock cycles per UART bit
+
+  // --------------------------------------------------------------------------
+  // DUT signals
+  // --------------------------------------------------------------------------
+  logic             clk = 1'b0;
+  logic             reset;
+  logic             rd_uart = 1'b0;
+  logic             wr_uart = 1'b0;
+  logic [7:0]       wr_data = 8'h00;
+  logic [7:0]       rd_data;
+  logic             rx_empty;
+  logic             full;
+  wire              tx;
+
+  logic             rx_drv  = 1'b1;           // serial stimulus
+  logic             loop_en = 1'b0;           // 1 = tie tx back to rx
+  wire              rx      = loop_en ? tx : rx_drv;
+
+  uart #(
+    .M          (M_TB),
+    .DBIT       (DBIT),
+    .SB_TICK    (OVS),
+    .DATA_WIDTH (8),
+    .DEPTH      (DEPTH)
+  ) dut (
+    .clk      (clk),
+    .reset    (reset),
+    .rx       (rx),
+    .rd_uart  (rd_uart),
+    .wr_uart  (wr_uart),
+    .wr_data  (wr_data),
+    .tx       (tx),
+    .rd_data  (rd_data),
+    .rx_empty (rx_empty),
+    .full     (full)
+  );
+
+  always #(CLK_PERIOD/2) clk = ~clk;
+
+  // --------------------------------------------------------------------------
+  // Bookkeeping
+  // --------------------------------------------------------------------------
+  int errors = 0;
+  int checks = 0;
+
+  logic [7:0] exp_rx [0:1023];   // bytes we expect to read out of the RX FIFO
+  int         exp_rx_cnt = 0;
+  int         rx_rd_idx  = 0;
+
+  logic [7:0] exp_tx [0:1023];   // bytes we expect to see on the tx pin
+  int         exp_tx_cnt = 0;
+  int         mon_cnt    = 0;
+  bit         mon_en     = 1'b0;
+
+  task automatic fail(input string msg);
+    begin
+      errors++;
+      $display("[%0t] ERROR: %s", $time, msg);
+    end
+  endtask
+
+  task automatic check_bit(input logic got, input logic exp, input string what);
+    begin
+      checks++;
+      if (got !== exp) fail($sformatf("%s: got %b, expected %b", what, got, exp));
+    end
+  endtask
+
+  task automatic check_byte(input logic [7:0] got, input logic [7:0] exp, input string what);
+    begin
+      checks++;
+      if (got !== exp)
+        fail($sformatf("%s: got 0x%02h, expected 0x%02h", what, got, exp));
+    end
+  endtask
+
+  task automatic idle_bits(input int n);
+    begin
+      repeat (n * BIT_CLKS) @(posedge clk);
+    end
+  endtask
+
+  // --------------------------------------------------------------------------
+  // Serial driver (acts like the far-end transmitter)
+  // --------------------------------------------------------------------------
+  task automatic drive_bit(input logic v, input int bclk);
+    begin
+      rx_drv <= v;
+      repeat (bclk) @(posedge clk);
+    end
+  endtask
+
+  // bclk = clock cycles per bit (BIT_CLKS = nominal)
+  task automatic send_serial(input logic [7:0] d, input int bclk);
+    begin
+      drive_bit(1'b0, bclk);                       // start
+      for (int i = 0; i < DBIT; i++)
+        drive_bit(d[i], bclk);                     // LSB first
+      drive_bit(1'b1, bclk);                       // stop
+    end
+  endtask
+
+  task automatic send_serial_exp(input logic [7:0] d, input int bclk);
+    begin
+      exp_rx[exp_rx_cnt] = d;
+      exp_rx_cnt++;
+      send_serial(d, bclk);
+    end
+  endtask
+
+  // --------------------------------------------------------------------------
+  // CPU-side helpers
+  // --------------------------------------------------------------------------
+  task automatic cpu_write(input logic [7:0] d);   // no full check
+    begin
+      @(posedge clk);
+      wr_data <= d;
+      wr_uart <= 1'b1;
+      @(posedge clk);
+      wr_uart <= 1'b0;
+    end
+  endtask
+
+  // waits for space, then queues the byte AND registers it as expected on tx
+  task automatic tx_send(input logic [7:0] d);
+    int t;
+    begin
+      t = 0;
+      @(posedge clk);                              // let the previous write's effect on `full` settle
+      while (full && t < 40 * BIT_CLKS) begin @(posedge clk); t++; end
+      if (full) fail("tx_send: FIFO stayed full (TX never drained?)");
+      exp_tx[exp_tx_cnt] = d;
+      exp_tx_cnt++;
+      cpu_write(d);
+    end
+  endtask
+
+  task automatic cpu_read(output logic [7:0] d);
+    int t;
+    begin
+      t = 0;
+      while (rx_empty && t < 40 * BIT_CLKS) begin @(posedge clk); t++; end
+      if (rx_empty) begin
+        fail("cpu_read: timeout, rx_empty never deasserted");
+        d = 8'hxx;
+      end else begin
+        @(posedge clk);
+        rd_uart <= 1'b1;
+        @(posedge clk);
+        rd_uart <= 1'b0;
+        @(posedge clk);                            // rd_data is registered
+        d = rd_data;
+      end
+    end
+  endtask
+
+  task automatic read_and_check(input int n);
+    logic [7:0] d;
+    begin
+      for (int i = 0; i < n; i++) begin
+        cpu_read(d);
+        if (rx_rd_idx < exp_rx_cnt)
+          check_byte(d, exp_rx[rx_rd_idx], $sformatf("RX byte #%0d", rx_rd_idx));
+        else
+          fail($sformatf("RX byte #%0d: unexpected extra byte 0x%02h", rx_rd_idx, d));
+        rx_rd_idx++;
+      end
+    end
+  endtask
+
+  // after a test: nothing extra must be waiting in the RX FIFO
+  task automatic expect_rx_empty(input string what);
+    begin
+      idle_bits(3);                                // give a spurious frame time to appear
+      check_bit(rx_empty, 1'b1, {what, ": rx_empty"});
+    end
+  endtask
+
+  task automatic wait_tx_done(input string what);
+    int t, limit;
+    begin
+      t     = 0;
+      limit = (exp_tx_cnt - mon_cnt + 2) * 12 * BIT_CLKS;
+      while (mon_cnt < exp_tx_cnt && t < limit) begin @(posedge clk); t++; end
+      if (mon_cnt < exp_tx_cnt)
+        fail($sformatf("%s: timeout, only %0d of %0d frames seen on tx", what, mon_cnt, exp_tx_cnt));
+      idle_bits(3);                                // catch unexpected extra frames
+      check_byte({7'b0, tx}, 8'h01, {what, ": tx idle level"});
+      if (mon_cnt != exp_tx_cnt)
+        fail($sformatf("%s: %0d frames on tx, expected %0d", what, mon_cnt, exp_tx_cnt));
+    end
+  endtask
+
+  // Full DUT reset + scoreboard clear, so one failing test cannot cascade into the next
+  task automatic do_reset;
+    begin
+      mon_en  = 1'b0;
+      loop_en = 1'b0;
+      rx_drv  = 1'b1;
+      reset   = 1'b1;
+      repeat (5) @(posedge clk);
+      reset   = 1'b0;
+      idle_bits(12);                               // let the monitor finish any frame in flight
+      exp_rx_cnt = 0;  rx_rd_idx = 0;
+      exp_tx_cnt = 0;  mon_cnt   = 0;
+      mon_en  = 1'b1;
+    end
+  endtask
+
+  // --------------------------------------------------------------------------
+  // TX monitor: decodes every frame on the tx pin
+  // --------------------------------------------------------------------------
+  initial begin : tx_monitor
+    logic [7:0] b;
+    bit         en;
+    forever begin
+      @(negedge tx);
+      en = mon_en;                                 // ignore frames that start while disabled
+      repeat (BIT_CLKS/2) @(posedge clk);          // middle of start bit
+      if (en) check_bit(tx, 1'b0, "TX monitor: start bit");
+      for (int i = 0; i < DBIT; i++) begin
+        repeat (BIT_CLKS) @(posedge clk);          // middle of data bit i
+        b[i] = tx;
+      end
+      repeat (BIT_CLKS) @(posedge clk);            // middle of stop bit
+      if (en) begin
+        check_bit(tx, 1'b1, "TX monitor: stop bit");
+        if (mon_cnt < exp_tx_cnt)
+          check_byte(b, exp_tx[mon_cnt], $sformatf("TX frame #%0d", mon_cnt));
+        else
+          fail($sformatf("TX frame #%0d: unexpected frame 0x%02h on tx", mon_cnt, b));
+        mon_cnt++;
+      end
+    end
+  end
+
+  // --------------------------------------------------------------------------
+  // Main sequence
+  // --------------------------------------------------------------------------
+  logic [7:0] dir_bytes [0:11];
+  logic [7:0] rnd;
+
+  initial begin : main
+    $dumpfile("dump.vcd");
+    $dumpvars(0, tb_uart);
+
+    $display("=== UART testbench: M=%0d, %0d clks/bit ===", M_TB, BIT_CLKS);
+
+    dir_bytes[0]  = 8'h00;  dir_bytes[1]  = 8'hFF;  dir_bytes[2]  = 8'hA5;
+    dir_bytes[3]  = 8'h5A;  dir_bytes[4]  = 8'h01;  dir_bytes[5]  = 8'h80;
+    dir_bytes[6]  = 8'h55;  dir_bytes[7]  = 8'hAA;  dir_bytes[8]  = 8'h0F;
+    dir_bytes[9]  = 8'hF0;  dir_bytes[10] = 8'h7F;  dir_bytes[11] = 8'hC3;
+
+    // ---------------- initial reset ----------------
+    reset = 1'b1;
+    repeat (5) @(posedge clk);
+    reset = 1'b0;
+    repeat (5) @(posedge clk);
+    mon_en = 1'b1;
+
+    // ---------------- 1. reset / idle ----------------
+    $display("--- Test 1: reset / idle levels");
+    check_bit(tx,       1'b1, "after reset: tx idle high");
+    check_bit(rx_empty, 1'b1, "after reset: rx_empty");
+    check_bit(full,     1'b0, "after reset: tx FIFO full");
+    idle_bits(2);
+    check_bit(tx,       1'b1, "idle: tx stays high");
+
+    do_reset;
+    // ---------------- 2. RX isolated frames ----------------
+    $display("--- Test 2: RX isolated frames");
+    for (int i = 0; i < 12; i++) begin
+      send_serial_exp(dir_bytes[i], BIT_CLKS);
+      idle_bits(2);
+    end
+    read_and_check(12);
+    expect_rx_empty("Test 2");
+
+    do_reset;
+    // ---------------- 3. RX back-to-back ----------------
+    $display("--- Test 3: RX back-to-back frames");
+    for (int i = 0; i < 8; i++)
+      send_serial_exp(dir_bytes[i], BIT_CLKS);     // no gap between frames
+    idle_bits(2);
+    read_and_check(8);
+    expect_rx_empty("Test 3");
+
+    do_reset;
+    // ---------------- 4. RX baud mismatch ----------------
+    $display("--- Test 4: RX with +/-2%% sender baud error");
+    for (int i = 0; i < 4; i++) begin
+      send_serial_exp(dir_bytes[i],     BIT_CLKS + BIT_CLKS/50);   // slow sender
+      idle_bits(2);
+      send_serial_exp(dir_bytes[i + 4], BIT_CLKS - BIT_CLKS/50);   // fast sender
+      idle_bits(2);
+    end
+    read_and_check(8);
+    expect_rx_empty("Test 4");
+
+    do_reset;
+    // ---------------- 5. RX FIFO overflow ----------------
+    $display("--- Test 5: RX FIFO overflow (%0d frames into depth-%0d FIFO)", DEPTH + 3, DEPTH);
+    for (int i = 0; i < DEPTH + 3; i++) begin
+      rnd = $urandom_range(0, 255);
+      if (i < DEPTH) exp_rx[exp_rx_cnt++] = rnd;   // only the first DEPTH survive
+      send_serial(rnd, BIT_CLKS);
+    end
+    idle_bits(2);
+    read_and_check(DEPTH);
+    expect_rx_empty("Test 5");
+
+    do_reset;
+    // ---------------- 6. TX directed ----------------
+    $display("--- Test 6: TX directed bytes");
+    for (int i = 0; i < 12; i++)
+      tx_send(dir_bytes[i]);
+    wait_tx_done("Test 6");
+
+    do_reset;
+    // ---------------- 7. TX FIFO full / dropped writes ----------------
+    $display("--- Test 7: TX FIFO full flag and dropped writes");
+    for (int i = 0; i < DEPTH; i++) begin
+      rnd = $urandom_range(0, 255);
+      exp_tx[exp_tx_cnt++] = rnd;
+      cpu_write(rnd);
+    end
+    @(posedge clk);                                // let the last write update the flags
+    check_bit(full, 1'b1, "TX FIFO full after DEPTH writes");
+    for (int i = 0; i < 3; i++)
+      cpu_write(8'hEE);                            // must be ignored, not sent
+    check_bit(full, 1'b1, "TX FIFO still full after extra writes");
+    wait_tx_done("Test 7");
+
+    do_reset;
+    // ---------------- 8. loopback ----------------
+    $display("--- Test 8: loopback, 40 random bytes");
+    loop_en = 1'b1;
+    fork
+      begin : lb_writer
+        for (int i = 0; i < 40; i++) begin
+          rnd = $urandom_range(0, 255);
+          exp_rx[exp_rx_cnt++] = rnd;
+          tx_send(rnd);
+        end
+      end
+      begin : lb_reader
+        read_and_check(40);
+      end
+    join
+    wait_tx_done("Test 8");
+    expect_rx_empty("Test 8");
+    loop_en = 1'b0;
+
+    // ---------------- summary ----------------
+    $display("=================================================");
+    if (errors == 0) $display("PASS: %0d checks, 0 errors", checks);
+    else             $display("FAIL: %0d checks, %0d errors", checks, errors);
+    $display("=================================================");
+    $finish;
+  end
+
+  // --------------------------------------------------------------------------
+  // Global watchdog (protects against a hung DUT)
+  // --------------------------------------------------------------------------
+  initial begin : watchdog
+    #(64'd3000 * 12 * BIT_CLKS * CLK_PERIOD);
+    $display("WATCHDOG: simulation exceeded its time budget");
+    $finish;
+  end
+
+endmodule
