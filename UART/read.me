@@ -1,0 +1,162 @@
+# UART Controller — SystemVerilog RTL
+
+A parameterized UART controller implemented in SystemVerilog. The design integrates a UART receiver, UART transmitter, baud-rate tick generator, and separate FIFO buffers for received and transmitted data.
+
+The project was developed as part of my RTL design learning journey, with simulation-based verification using a testbench.
+
+## Features
+
+* Parameterized UART baud tick generator
+* UART receiver with start, data, and stop-bit handling
+* UART transmitter with start, data, and stop-bit handling
+* Separate RX and TX FIFO buffers
+* Configurable data width and FIFO depth
+* CPU-side read and write interface
+* Full and empty status signals
+* SystemVerilog testbench with directed and randomized tests
+
+## Architecture
+
+```text
+                         UART Controller
+┌───────────────────────────────────────────────────────────┐
+│                                                           │
+│  RX Pin ──► UART Receiver ──► RX FIFO ──► CPU Read Data   │
+│                 ▲                                         │
+│                 │                                         │
+│          Baud Tick Generator                              │
+│                 │                                         │
+│  TX Pin ◄── UART Transmitter ◄── TX FIFO ◄── CPU Write    │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+```
+
+The baud generator produces an oversampling tick used by both the receiver and transmitter. The RX FIFO stores received bytes until the CPU reads them. The TX FIFO buffers CPU-written bytes until the transmitter sends them.
+
+## Top-Level Interface
+
+### Inputs
+
+| Signal    | Description                        |
+| --------- | ---------------------------------- |
+| `clk`     | System clock                       |
+| `reset`   | Active-high asynchronous reset     |
+| `rx`      | UART serial receive input          |
+| `rd_uart` | Read request for the RX FIFO       |
+| `wr_uart` | Write request for the TX FIFO      |
+| `wr_data` | Data byte written into the TX FIFO |
+
+### Outputs
+
+| Signal     | Description                         |
+| ---------- | ----------------------------------- |
+| `tx`       | UART serial transmit output         |
+| `rd_data`  | Data read from the RX FIFO          |
+| `rx_empty` | Indicates that the RX FIFO is empty |
+| `full`     | Indicates that the TX FIFO is full  |
+
+**Note:** In the current top-level design, `full` is connected to the TX FIFO's full flag. The RX FIFO's full output is not connected to a top-level status signal.
+
+## Parameters
+
+| Parameter    |     Default | Description                          |
+| ------------ | ----------: | ------------------------------------ |
+| `M`          |       `163` | Baud tick generator divisor          |
+| `N`          | `$clog2(M)` | Counter width for the baud generator |
+| `DBIT`       |         `8` | UART data bits                       |
+| `SB_TICK`    |        `16` | Oversampling ticks per bit           |
+| `DATA_WIDTH` |         `8` | FIFO data width                      |
+| `DEPTH`      |        `16` | FIFO depth                           |
+
+The testbench uses a smaller baud divisor to reduce simulation time.
+
+## UART Frame Format
+
+The receiver and transmitter use the following frame structure:
+
+```text
+Idle | Start | Data Bits (LSB first) | Stop |
+  1  |   0   |       8 bits          |  1   |
+```
+
+The current design uses 8 data bits and one stop bit. Parity generation and parity checking are not implemented.
+
+## Modules
+
+### `uart`
+
+Top-level module connecting the baud generator, receiver, transmitter, and FIFOs.
+
+### `baut_generator`
+
+Generates a periodic `max_tick` pulse based on the configured divisor. The current module name is `baut_generator` in the source code.
+
+### `uart_rx`
+
+Receives serial data and converts it into a parallel byte. It uses an FSM with `idle`, `start`, `data`, and `stop` states.
+
+### `uart_tx`
+
+Loads a byte from the TX FIFO and transmits it serially using an FSM with `idle`, `start`, `data`, and `stop` states.
+
+### `fifo`
+
+Parameterized FIFO buffer supporting configurable data width, depth, and first-word-fall-through (FWFT) behavior.
+
+## Verification
+
+The testbench is named `tb_uart`. It includes the following scenarios:
+
+1. Reset and idle-level checks
+2. Isolated RX frames
+3. Back-to-back RX frames
+4. RX with a small sender baud-rate mismatch
+5. RX FIFO overflow behavior
+6. Directed TX byte transfers
+7. TX FIFO full behavior and attempted extra writes
+8. UART TX-to-RX loopback with randomized bytes
+
+The testbench uses a scoreboard to compare received bytes and transmitted frames against expected values. It also checks UART start and stop bits and includes a watchdog to prevent simulation from hanging.
+
+**Verification status:** The testbench was AI-assisted and still needs to be compiled and run against the RTL. Add the actual simulator output here after checking that the tests pass. Do not describe the design as fully verified until the results have been reviewed.
+
+## Tools
+
+* SystemVerilog
+* Verilator
+* EDA Playground or a local Verilator environment
+* VCD waveform inspection
+
+## Project Structure
+
+```text
+UART-Controller/
+├── design.sv       # UART RTL modules
+├── tb_uart.sv      # UART testbench
+└── README.md       # Project documentation
+```
+
+## Learning Objectives
+
+Through this project, I practiced:
+
+* Integrating multiple RTL modules
+* Designing FSM-based UART RX and TX logic
+* Generating baud-rate timing ticks
+* Building parameterized FIFO buffers
+* Connecting module interfaces and control signals
+* Writing a self-checking SystemVerilog testbench
+* Testing serial communication, buffering, and loopback behavior
+
+## Future Improvements
+
+* Add parity generation and checking
+* Expose RX FIFO full status and define overflow handling
+* Add configurable stop-bit support
+* Improve reset and status-signal handling
+* Verify additional parameter combinations
+* Run lint and simulation regression checks
+
+## Acknowledgment
+
+The RTL design was written by me. The testbench was AI-assisted and is being reviewed and validated through simulation.
