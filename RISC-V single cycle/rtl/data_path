@@ -1,0 +1,132 @@
+// Code your design here
+`include "pc_register"
+`include "Instruction_Memory"
+`include "register_file"
+`include "data_memory"
+`include "adder"
+`include "extend_unit"
+`include "mux_two_one"
+`include "alu"
+
+
+module riscv_datapath (
+  input  logic        clk,
+  input  logic        rst,         // synchronous reset, forces PC to 0
+
+  // ---------------- from control unit ----------------
+  input  logic        PCSrc,       // 0: PC+4, 1: PCTarget
+  input  logic        RegWrite,
+  input  logic [1:0]  ImmSrc,      // 00 I, 01 S, 10 B
+  input  logic        ALUSrc,      // 0: RD2, 1: ImmExt
+  input  logic [2:0]  ALUControl,
+  input  logic        MemWrite,
+  input  logic        ResultSrc,   // 0: ALUResult, 1: ReadData
+
+  // ---------------- to control unit ----------------
+  output logic [31:0] Instr,       // opcode / funct3 / funct7 for decoding
+  output logic        Zero,        // for PCSrc = Branch & Zero
+
+  // ---------------- observation / verification ----------------
+  output logic [31:0] PC,          // instruction flow, branch behavior
+  output logic [31:0] ALUResult,   // address (lw/sw), OR result, SUB result (beq)
+  output logic [31:0] WriteData,   // RD2: data going to memory on sw
+  output logic [31:0] ReadData,    // data memory output (lw)
+  output logic [31:0] Result       // value written back to the register file
+);
+
+  // ---------------- internal wires ----------------
+  logic [31:0] PCNext, PCNext_r;
+  logic [31:0] PCPlus4, PCTarget;
+  logic [31:0] ImmExt;
+  logic [31:0] SrcA, SrcB;
+
+  // ================= Fetch =================
+  // PCSrc mux: 0 -> PC+4, 1 -> branch target
+  mux2 #(.WIDTH(32)) u_pcmux (
+    .d0(PCPlus4),
+    .d1(PCTarget),
+    .s (PCSrc),
+    .y (PCNext)
+  );
+
+  // PC_reg has no reset, so reset is applied in front of it
+  assign PCNext_r = rst ? 32'b0 : PCNext;
+
+  PC_reg #(.WIDTH(32)) u_pc (
+    .clk   (clk),
+    .PCNext(PCNext_r),
+    .PC    (PC)
+  );
+
+  adder u_pcplus4 (
+    .a(PC),
+    .b(32'd4),
+    .y(PCPlus4)
+  );
+
+  instruction_memory #(.WIDTH(32)) u_imem (
+    .a  (PC),
+    .rd1(Instr)
+  );
+
+  // ================= Decode =================
+  register_file #(.DATA_WIDTH(32), .NUM_REGS(32)) u_rf (
+    .clk(clk),
+    .we3(RegWrite),
+    .a1 (Instr[19:15]),
+    .a2 (Instr[24:20]),
+    .a3 (Instr[11:7]),
+    .wd3(Result),
+    .rd1(SrcA),
+    .rd2(WriteData)
+  );
+
+  extend u_ext (
+    .instr (Instr[31:7]),
+    .immsrc(ImmSrc),
+    .immext(ImmExt)
+  );
+
+  // ================= Execute =================
+  mux2 #(.WIDTH(32)) u_srcbmux (
+    .d0(WriteData),
+    .d1(ImmExt),
+    .s (ALUSrc),
+    .y (SrcB)
+  );
+
+  alu #(.N(32)) u_alu (
+    .a          (SrcA),
+    .b          (SrcB),
+    .alu_control(ALUControl),
+    .result     (ALUResult),
+    .zero       (Zero),
+    .neg        (),
+    .carry      (),
+    .overflow   ()
+  );
+
+  adder u_pctarget (
+    .a(PC),
+    .b(ImmExt),
+    .y(PCTarget)
+  );
+
+  // ================= Memory =================
+  data_memory #(.DATA_WIDTH(32), .NUM_REGS(32)) u_dmem (
+    .clk(clk),
+    .we (MemWrite),
+    .a  (ALUResult),
+    .wd (WriteData),
+    .rd (ReadData)
+  );
+
+  // ================= Write-back =================
+  mux2 #(.WIDTH(32)) u_resmux (
+    .d0(ALUResult),
+    .d1(ReadData),
+    .s (ResultSrc),
+    .y (Result)
+  );
+
+endmodule
