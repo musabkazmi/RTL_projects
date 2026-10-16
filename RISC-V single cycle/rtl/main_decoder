@@ -1,0 +1,54 @@
+module main_decoder (
+    input  logic [6:0] op,
+    output logic       RegWrite,
+    output logic [1:0] ImmSrc,
+    output logic       ALUSrc,
+    output logic       MemWrite,
+    output logic       ResultSrc,
+    output logic       Branch,
+    output logic [1:0] ALUOp
+);
+
+    always_comb begin
+        // Safe defaults: every output is driven on every path
+        RegWrite  = 1'b0;
+        MemWrite  = 1'b0;
+        Branch    = 1'b0;
+        ALUSrc    = 1'b0;
+        ALUOp     = 2'b00;
+        ImmSrc    = 2'bxx;
+        ResultSrc = 1'bx;
+
+        case (op)
+            7'b0000011: begin // lw
+                RegWrite  = 1'b1;
+                ImmSrc    = 2'b00;
+                ALUSrc    = 1'b1;
+                ResultSrc = 1'b1;
+                ALUOp     = 2'b00;
+            end
+
+            7'b0100011: begin // sw
+                ImmSrc    = 2'b01;
+                ALUSrc    = 1'b1;
+                MemWrite  = 1'b1;
+                ALUOp     = 2'b00;
+            end
+
+            7'b0110011: begin // R-type
+                RegWrite  = 1'b1;
+                ResultSrc = 1'b0;
+                ALUOp     = 2'b10;
+            end
+
+            7'b1100011: begin // beq
+                ImmSrc    = 2'b10;
+                Branch    = 1'b1;
+                ALUOp     = 2'b01;
+            end
+
+//             default: ;
+        endcase
+    end
+
+endmodule
