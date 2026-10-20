@@ -1,0 +1,42 @@
+`timescale 1ns/1ps
+module tb;
+    logic clk=0, reset=1;
+    top dut(.clk, .reset);
+    always #5 clk = ~clk;
+    int errors=0;
+    initial for (int k=0;k<32;k++) dut.dp.rf.rf[k] = 32'b0;   // sim only: clear regs
+    // load the test program directly (no hex file needed)
+    initial begin
+        dut.dp.instr_data_memory.mem[0] = 32'h00500093;
+        dut.dp.instr_data_memory.mem[1] = 32'h00700113;
+        dut.dp.instr_data_memory.mem[2] = 32'h002081b3;
+        dut.dp.instr_data_memory.mem[3] = 32'h40110233;
+        dut.dp.instr_data_memory.mem[4] = 32'h08302023;
+        dut.dp.instr_data_memory.mem[5] = 32'h08002283;
+        dut.dp.instr_data_memory.mem[6] = 32'h00518463;
+        dut.dp.instr_data_memory.mem[7] = 32'h06300313;
+        dut.dp.instr_data_memory.mem[8] = 32'h00208463;
+        dut.dp.instr_data_memory.mem[9] = 32'h00100393;
+        dut.dp.instr_data_memory.mem[10] = 32'h0080046f;
+        dut.dp.instr_data_memory.mem[11] = 32'h06300493;
+        dut.dp.instr_data_memory.mem[12] = 32'h02a00513;
+        dut.dp.instr_data_memory.mem[13] = 32'hffd00593;
+        dut.dp.instr_data_memory.mem[14] = 32'h0000006f;
+    end
+    task automatic chk(input string n, input logic [31:0] got, exp);
+        if (got !== exp) begin errors++; $display("FAIL %-9s got 0x%h want 0x%h", n, got, exp); end
+        else $display("ok   %-9s = %0d", n, $signed(got));
+    endtask
+    initial begin
+        #12 reset = 0; #1500;
+        chk("x1",dut.dp.rf.rf[1],5);   chk("x2",dut.dp.rf.rf[2],7);
+        chk("x3",dut.dp.rf.rf[3],12);  chk("x4",dut.dp.rf.rf[4],2);
+        chk("x5",dut.dp.rf.rf[5],12);  chk("x6",dut.dp.rf.rf[6],0);
+        chk("x7",dut.dp.rf.rf[7],1);   chk("x8",dut.dp.rf.rf[8],32'h2c);
+        chk("x9",dut.dp.rf.rf[9],0);   chk("x10",dut.dp.rf.rf[10],42);
+        chk("x11",dut.dp.rf.rf[11],-3);
+        chk("mem[0x80]",dut.dp.instr_data_memory.mem[32],12);
+        chk("PC",dut.dp.pc,32'h38);
+        $display("%s (%0d errors)", errors==0?"ALL PASS":"FAILED", errors); $finish;
+    end
+endmodule
