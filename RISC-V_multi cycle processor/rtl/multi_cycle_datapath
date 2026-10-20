@@ -1,0 +1,68 @@
+`include "register_file"
+`include "extend_unit"
+`include "alu"
+`include "FLIPFLOP_RESETandENABLE"
+`include "RESETTABLE_FLIP-FLOP"
+`include "mux2"
+`include "mux3"
+`include "memory_inst_data"
+
+module multi_cycle_datapath (
+  input  logic        clk,
+  input  logic        reset,
+  input  logic        PCWrite,
+  input  logic        AdrSrc,
+  input  logic        MemWrite,
+  input  logic        IRWrite,
+  input  logic        RegWrite,
+  input  logic [1:0]  ImmSrc,
+  input  logic [1:0]  ALUSrcA,
+  input  logic [1:0]  ALUSrcB,
+  input  logic [2:0]  ALUControl,
+  input  logic [1:0]  ResultSrc,
+  output logic        Zero,
+  output logic [31:0] Result,
+  output logic [6:0]  op,
+  output logic [2:0]  funct3,
+  output logic        funct7_5
+);
+
+  logic [31:0] pc, OldPC, adr, ReadData, instr, Data;
+  logic [31:0] rd1, rd2, A, B, ImmExt;
+  logic [31:0] SrcA, SrcB, ALUResult, ALUOut;
+
+  assign op       = instr[6:0];
+  assign funct3   = instr[14:12];
+  assign funct7_5 = instr[30];
+
+  flopenr #(32) pc_reg (.clk, .reset, .en(PCWrite), .d(Result), .q(pc));
+  mux2    #(32) adr_mux (.d0(pc), .d1(ALUOut), .s(AdrSrc), .y(adr));
+
+  memory_inst_data #(.INIT_FILE("program.hex")) instr_data_memory (
+    .clk(clk), .we(MemWrite), .a(adr), .wd(B), .rd(ReadData));
+
+  flopenr #(32) ir_reg    (.clk, .reset, .en(IRWrite), .d(ReadData), .q(instr));
+  flopenr #(32) oldpc_reg (.clk, .reset, .en(IRWrite), .d(pc),       .q(OldPC));
+  flopr   #(32) data_reg  (.clk, .reset, .d(ReadData), .q(Data));
+
+  register_file rf (
+    .clk(clk), .we3(RegWrite),
+    .a1(instr[19:15]), .a2(instr[24:20]), .a3(instr[11:7]),
+    .wd3(Result), .rd1(rd1), .rd2(rd2));
+
+  flopr #(32) a_reg (.clk, .reset, .d(rd1), .q(A));
+  flopr #(32) b_reg (.clk, .reset, .d(rd2), .q(B));
+
+  extend ext (.instr(instr[31:7]), .immsrc(ImmSrc), .immext(ImmExt));
+
+  mux3 #(32) srca_mux (.d0(pc), .d1(OldPC),  .d2(A),         .s(ALUSrcA), .y(SrcA));
+  mux3 #(32) srcb_mux (.d0(B),  .d1(ImmExt), .d2(32'd4),     .s(ALUSrcB), .y(SrcB));
+
+  alu alu_inst (
+    .a(SrcA), .b(SrcB), .alu_control(ALUControl), .result(ALUResult),
+    .zero(Zero), .neg(), .carry(), .overflow());
+
+  flopr #(32) aluout_reg (.clk, .reset, .d(ALUResult), .q(ALUOut));
+
+  mux3 #(32) result_mux (.d0(ALUOut), .d1(Data), .d2(ALUResult), .s(ResultSrc), .y(Result));
+endmodule
